@@ -1,5 +1,9 @@
 # 网关层 GZIP 页面零开销注入脚本
 
+## 原理
+
+https://www.cnblogs.com/index-html/p/inject-js-into-a-gzipped-html-without-decompressing.html
+
 ## 安装
 
 ```bash
@@ -36,7 +40,9 @@ http://127.0.0.1:9000/?line=50&delay=200&algo=gzip&error=0.01
 node index.js
 ```
 
-使用方式为 http://127.0.0.1:8000/?target_url，例如：
+使用方式为 http://127.0.0.1:8000/?target_url
+
+例如：
 
 http://127.0.0.1:8000/?https://www.tmall.com
 
