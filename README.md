@@ -1,11 +1,11 @@
 ## Introduction
 
-An HTTP gateway injection demo. The proxy injects a script into a gzipped page without decompressing the traffic.
+A demo of HTTP proxy/gateway injection. The proxy injects a script into a gzip-compressed HTML response without decompressing the response body.
 
 
 ## How it Works
 
-The gateway can directly insert a script into the top of the HTML:
+The gateway prepends a script tag at the beginning of the HTML document:
 
 ```diff
 +<!doctype html><script src="inject.js"></script>
@@ -16,11 +16,11 @@ The gateway can directly insert a script into the top of the HTML:
 </html>
 ```
 
-While not standard, this is compatible with all browsers.
+This is not strictly standards-compliant, but it works in major browsers.
 
-When forwarding, the gateway only needs to output the injected data first. If the upstream is compressed, it outputs the pre-compressed injected data.
+When forwarding a response, the gateway writes the injected content first. If the upstream payload is compressed, it writes a pre-compressed injection prefix.
 
-For *deflate* compression, the two compressed data can be directly concatenated:
+For a raw DEFLATE stream, two independently-compressed streams can be concatenated and decoded as a single stream:
 
 ```js
 const zlib = require('zlib')
@@ -50,9 +50,9 @@ http.createServer((req, res) => {
 }).listen(8080)
 ```
 
-[RFC1951](https://www.rfc-editor.org/rfc/rfc1951#page-4) specifies that  pointers to duplicate data are represented as `<length, backward distance>`, which is a relative position unaffected by the insertion of our blocks at the beginning.
+This works because the injected prefix ends with a non-final DEFLATE block (BFINAL=0), so the decoder continues into the upstream data and its back-references still resolve correctly.
 
-For *gzip* compression, the upstream header needs to be removed, and the *crc* and *len* fields at the end need to be updated (browsers don't verify these, but some libraries do).
+For gzip, the upstream gzip header must be removed, and the trailer fields (crc and len) must be updated. Many browsers appear to ignore trailer validation for streaming responses, but some libraries validate it.
 
 
 ## Installation
@@ -61,7 +61,7 @@ For *gzip* compression, the upstream header needs to be removed, and the *crc* a
 npm install
 ```
 
-This project uses the `Crc32Combine` function from zlib. This function is wrapped using node-gyp, which will be automatically compiled during installation.
+This project uses zlib’s `crc32_combine`. It is wrapped with node-gyp and compiled automatically during installation.
 
 
 ## Mock an Upstream Server
@@ -76,13 +76,13 @@ http://127.0.0.1:9000/?line=50&delay=200&algo=gzip&error=0.01
 
 Parameters:
 
-* line: Number of lines to output. (Each line is a data block)
+* line: Number of lines to output (each line is emitted as one data block).
 
-* delay: Output interval. (In milliseconds)
+* delay: Output interval in milliseconds.
 
-* algo: Compression algorithm. ("gzip" or empty)
+* algo: Compression algorithm (gzip or omit for no compression).
 
-* error: Error probability. (In the above example, there is a 1% probability that each output will cause the stream to terminate)
+* error: Probability of aborting the stream on each write (e.g., 0.01 = 1%).
 
 
 ## Gateway Testing
@@ -101,13 +101,16 @@ http://127.0.0.1:8000/?https://www.tmall.com
 
 <img width="2080" height="1454" alt="image" src="https://github.com/user-attachments/assets/e540c975-b7a1-4c06-b1b2-c38de49c3ebd" />
 
-> The console displays logs for “Hi jack”, and the page remains in gzip format. The gateway injected our script without decompression, as expected.
+> The console prints “Hi jack”, and the page is still gzip-compressed. The gateway injected the script without decompression, as expected.
 
 Using the mocked upstream server:
 
 http://127.0.0.1:8000/?http://127.0.0.1:9000/?line=50&delay=200&algo=gzip&error=0.01
 
-Testing gzip trailer validation. Browsers don't validate them, but some libraries do, such as Node.js's fetch:
+
+## Testing gzip trailer validation
+
+Browsers typically don’t validate the gzip trailer, but some libraries do (e.g., Node.js fetch):
 
 ```js
 const url = 'http://127.0.0.1:8000/?https://www.tmall.com'
@@ -122,7 +125,7 @@ for (;;) {
 }
 ```
 
-If you remove `TRAILER_U32[0] = newCrc` from `index.js`, the above code will throw an error when reading the last chunk:
+If you remove `TRAILER_U32[0] = newCrc` from `index.js`, the above code will throw when reading the last chunk:
 
 ```
 Uncaught TypeError: terminated
@@ -132,7 +135,7 @@ Uncaught TypeError: terminated
     code: 'Z_DATA_ERROR'
 ```
 
-For how to update the CRC, please refer to:
+For details on updating the CRC, see:
 
 https://stackoverflow.com/questions/23122312/crc-calculation-of-a-mostly-static-data-stream/23126768
 
@@ -141,7 +144,7 @@ https://github.com/stbrumme/crc32/blob/master/Crc32.cpp#L560
 
 ## Stream Processing
 
-This project uses an interesting library, [QuickReader](https://github.com/EtherDream/QuickReader), which makes stream processing simpler and efficient.
+This project uses an interesting library, [QuickReader](https://github.com/EtherDream/QuickReader), which makes stream processing simpler and more efficient.
 
 
 ## TODO
